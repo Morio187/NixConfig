@@ -22,6 +22,15 @@
         nixPath = lib.mkDefault [ "nixpkgs=${inputs.nixpkgs}" ];
   };
 
+  # Disable Power Key
+  services.logind.settings.Login = {
+    HandlePowerKey = "ignore";
+    HandlePowerKeyLongPress = "ignore";
+    InhibitDelayMaxSec = "0";
+  };
+
+  boot.blacklistedKernelModules = [ "tiny_power_button" ];
+
   #boot-loader
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
