@@ -8,6 +8,8 @@
 
     ];
 
+  zramSwap.enable = true;
+
   #flakes
   nix.settings.experimental-features = ["nix-command" "flakes"];
   nix = {
@@ -162,7 +164,15 @@
     github-desktop
     vencord
     whatsapp-electron
-    xournalpp
+    (pkgs.symlinkJoin {
+      name = "xournalpp-x11";
+      paths = [ pkgs.xournalpp ];
+      buildInputs = [ pkgs.makeWrapper ];
+      postBuild = ''
+        wrapProgram $out/bin/xournalpp \
+          --set GDK_BACKEND x11
+      '';
+    })
     signal-desktop
     (stdenv.mkDerivation {
           pname = "caelestia-sddm";
@@ -184,7 +194,11 @@
     gradle
     p7zip
     desktop-file-utils
+    google-chrome
+    pkgsUnstable.steam
   ];
+
+  programs.direnv.enable = true;
   services.upower.enable = true;
   services.power-profiles-daemon.enable = true;
   hardware.bluetooth.enable = true;
