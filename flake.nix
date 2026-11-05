@@ -1,30 +1,44 @@
 {
+  description = "NixOS configuration for lk";
+
+  # ==========================================================================
+  # Inputs: everything this config is built from
+  # ==========================================================================
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    # --- Package sets ---
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";            # stable base system
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable"; # newer versions of selected apps
 
-    caelestia-shell = {
-          url = "github:caelestia-dots/shell";
-    };
-
-    hyprland.url = "github:hyprwm/Hyprland";
-
-    caelestia-sddm = {
-      url = "github:ItsABigIgloo/caelestia-sddm";
-      flake = false;
-    };
-
+    # --- User environment ---
     home-manager = {
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # --- Desktop (Hyprland + Caelestia) ---
+    hyprland.url = "github:hyprwm/Hyprland";
+    caelestia-shell.url = "github:caelestia-dots/shell";
+    caelestia-sddm = {
+      url = "github:ItsABigIgloo/caelestia-sddm";
+      flake = false; # plain source repo, only the theme files are used
+    };
+
+    # --- Apps not in nixpkgs ---
+    claude-desktop.url = "github:poeck/claude-desktop-nix-flake";
   };
 
-  outputs = { self,  nixpkgs, nixpkgs-unstable, home-manager, caelestia-shell, hyprland, caelestia-sddm, ... }@inputs: {
+  # ==========================================================================
+  # Outputs: the actual system definition
+  # ==========================================================================
+  outputs = { nixpkgs, nixpkgs-unstable, home-manager, ... }@inputs: {
     nixosConfigurations.lk = nixpkgs.lib.nixosSystem {
-      specialArgs = { inherit inputs caelestia-shell hyprland; };
+      # Makes `inputs` available as a module argument (inputs.hyprland, ...)
+      specialArgs = { inherit inputs; };
+
       modules = [
         ./configuration.nix
+
+        # Unstable package set, usable as `pkgsUnstable.<name>` in modules
         {
           _module.args.pkgsUnstable = import nixpkgs-unstable {
             system = "x86_64-linux";
@@ -32,16 +46,17 @@
           };
         }
 
+        # Home Manager, configured per user in ./home.nix
         home-manager.nixosModules.home-manager
         {
           home-manager = {
-            useGlobalPkgs = true;
-            useUserPackages = true;
+            useGlobalPkgs = true;        # share nixpkgs (and allowUnfree) with the system
+            useUserPackages = true;      # install user packages into /etc/profiles
+            backupFileExtension = "backup"; # rename conflicting files instead of failing
             users.lk = import ./home.nix;
-            backupFileExtension = "backup";
           };
         }
-       ];
-     };
-   };
- }
+      ];
+    };
+  };
+}
