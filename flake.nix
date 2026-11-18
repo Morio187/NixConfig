@@ -8,6 +8,7 @@
     # --- Package sets ---
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";            # stable base system
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable"; # newer versions of selected apps
+    nix-flatpak.url = "github:gmodena/nix-flatpak/?ref=latest";
 
     # --- User environment ---
     home-manager = {
@@ -30,13 +31,14 @@
   # ==========================================================================
   # Outputs: the actual system definition
   # ==========================================================================
-  outputs = { nixpkgs, nixpkgs-unstable, home-manager, ... }@inputs: {
+  outputs = { nixpkgs, nixpkgs-unstable, home-manager, nix-flatpak, ...}@inputs: {
     nixosConfigurations.lk = nixpkgs.lib.nixosSystem {
       # Makes `inputs` available as a module argument (inputs.hyprland, ...)
       specialArgs = { inherit inputs; };
 
       modules = [
         ./configuration.nix
+        nix-flatpak.nixosModules.nix-flatpak
 
         # Unstable package set, usable as `pkgsUnstable.<name>` in modules
         {

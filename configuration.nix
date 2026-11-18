@@ -21,11 +21,39 @@ in
     # Drop nix-channel tooling, flakes are used instead
     channel.enable = false;
 
+
     # Keep NIX_PATH so non-flake tools (e.g. nix-shell) still find nixpkgs
     nixPath = lib.mkDefault [ "nixpkgs=${inputs.nixpkgs}" ];
   };
 
   nixpkgs.config.allowUnfree = true;
+  security.sudo.extraRules = [{
+    users = [ "lk" ];
+    commands = [{
+      command = "/run/current-system/sw/bin/nixos-rebuild";
+      options = [ "NOPASSWD" ];
+    }];
+  }];
+  # VSCode 1.144 moved rg from @vscode/ripgrep to @vscode/ripgrep-universal; nixpkgs' postPatch still rm's the old path.
+  # Remove once nixpkgs fixes it (the replace then simply stops matching).
+  nixpkgs.overlays = [
+    (final: prev: {
+      vscode = prev.vscode.overrideAttrs (old: {
+        postPatch = builtins.replaceStrings
+          [ "@vscode/ripgrep/bin/rg" ]
+          [ "@vscode/ripgrep-universal/bin/linux-x64/rg" ]
+          old.postPatch
+        + ''
+          ln -sf ${final.ripgrep}/bin/rg resources/app/node_modules.asar.unpacked/@vscode/ripgrep-universal/bin/linux-x64/rg
+        '';
+      });
+    })
+  ];
+  services.flatpak.enable = true;
+  services.flatpak.packages = [
+    { appId = "com.brave.Browser"; origin = "flathub";  }
+    "com.obsproject.Studio"
+  ];
 
   # ==========================================================================
   # Boot & Kernel
@@ -196,6 +224,12 @@ in
     extraPackages = [ pkgs.jdk ];
   };
 
+  # npm global installs go to a writable dir in $HOME (Nix store is read-only)
+  environment.sessionVariables = {
+    NPM_CONFIG_PREFIX = "$HOME/.npm-global";
+    PATH = [ "$HOME/.npm-global/bin" ];
+  };
+
   # ==========================================================================
   # System packages
   # ==========================================================================
@@ -245,6 +279,7 @@ in
     # --- Development ---
     vscode
     zed-editor
+    ripes         # RISC-V processor simulator
     github-desktop
     pkgsUnstable.jetbrains.clion
     pkgsUnstable.jetbrains.rider
@@ -258,6 +293,7 @@ in
     jdk21
     gradle
     claude-code
+    nodejs        # Node.js + npm (needed by novamira CLI)
     inputs.claude-desktop.packages.${system}.default
 
     # --- Browsers & communication ---
