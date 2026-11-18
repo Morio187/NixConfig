@@ -271,6 +271,11 @@ in
     })
 
     # --- Icons & theming ---
+    # Recolours installed apps' icons to the current Caelestia scheme (run by the postHook in ~/.config/caelestia/cli.json)
+    (writers.writePython3Bin "caelestia-icons" {
+      libraries = [ python3Packages.pillow ];
+      flakeIgnore = [ "E501" ];
+    } (builtins.readFile ./caelestia-icons.py))
     papirus-icon-theme
     adw-gtk3      # GTK3 base theme Caelestia's gtk.css colours build on
     qtengine      # Qt platform theme Caelestia writes colours for
@@ -312,7 +317,7 @@ in
       name = "nix-shelf";
       desktopName = "Nix Shelf";
       comment = "Browse, test and install nixpkgs";
-      icon = "system-software-install";
+      icon = "nix-shelf"; # ~/.local/share/icons/hicolor/scalable/apps/nix-shelf.svg links to the project's assets/icon.svg
       exec = "/home/lk/CLionProjects/NixShelf/target/release/nix-shelf";
       categories = [ "System" "PackageManager" ];
     })
@@ -321,7 +326,7 @@ in
       name = "nix-settings";
       desktopName = "Nix Settings";
       comment = "Browse and change NixOS options";
-      icon = "preferences-system";
+      icon = "nix-settings"; # linked the same way as nix-shelf
       exec = "/home/lk/CLionProjects/NixSettings/target/release/nix-settings";
       categories = [ "System" "Settings" ];
     })
