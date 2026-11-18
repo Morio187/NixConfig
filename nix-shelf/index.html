@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nix Shelf</title>
+<style>
+  /* fallback colours; replaced live from the Caelestia scheme */
+  :root {
+    --background:#1c1b1f; --onBackground:#e6e1e5; --surfaceContainer:#2b2930; --surfaceContainerHigh:#36343b;
+    --surfaceContainerHighest:#413f46; --onSurface:#e6e1e5; --onSurfaceVariant:#cac4d0; --outlineVariant:#49454f;
+    --primary:#d0bcff; --onPrimary:#381e72; --secondaryContainer:#4a4458; --onSecondaryContainer:#e8def8;
+    --tertiary:#efb8c8; --onTertiary:#492532; --error:#f2b8b5; --onError:#601410; --scrim:#000;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--background); color:var(--onBackground);
+         font: 15px/1.45 "Rubik", "Inter", system-ui, sans-serif; }
+  header { position:sticky; top:0; z-index:2; background:var(--background); padding:16px 24px 12px;
+           display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:20px; margin:0 12px 0 0; color:var(--primary); font-weight:600; }
+  input { flex:1; min-width:200px; padding:12px 20px; border-radius:999px; border:none; font:inherit;
+          background:var(--surfaceContainerHigh); color:var(--onSurface); outline:none; }
+  input:focus { box-shadow:0 0 0 2px var(--primary); }
+  .tabs { display:flex; gap:4px; background:var(--surfaceContainer); padding:4px; border-radius:999px; }
+  .tabs button { border:none; background:none; color:var(--onSurfaceVariant); padding:8px 16px; border-radius:999px;
+                 font:inherit; cursor:pointer; }
+  .tabs button.on { background:var(--secondaryContainer); color:var(--onSecondaryContainer); }
+  #count { color:var(--onSurfaceVariant); font-size:13px; padding:0 24px; }
+  main { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; padding:12px 24px 40px; }
+  .card { background:var(--surfaceContainer); border-radius:16px; padding:14px 16px; cursor:pointer;
+          border:1px solid transparent; transition:background .15s; text-align:left; font:inherit; color:inherit; }
+  .card:hover, .card:focus-visible { background:var(--surfaceContainerHigh); border-color:var(--outlineVariant); outline:none; }
+  .card b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card span { color:var(--onSurfaceVariant); font-size:13px; }
+  .badge { float:right; font-size:11px; padding:1px 8px; border-radius:999px; background:var(--primary); color:var(--onPrimary); }
+  dialog { border:none; border-radius:28px; padding:24px; width:min(560px, calc(100vw - 32px));
+           background:var(--surfaceContainerHigh); color:var(--onSurface); }
+  dialog::backdrop { background:color-mix(in srgb, var(--scrim) 50%, transparent); }
+  dialog h2 { margin:0 0 4px; font-size:22px; }
+  dialog .sub { color:var(--onSurfaceVariant); font-size:13px; margin-bottom:16px; }
+  dialog p { white-space:pre-wrap; margin:0 0 12px; }
+  dialog a { color:var(--primary); }
+  .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; flex-wrap:wrap; }
+  .actions button { border:none; border-radius:999px; padding:10px 20px; font:inherit; font-weight:500; cursor:pointer; }
+  .primary { background:var(--primary); color:var(--onPrimary); }
+  .tonal { background:var(--secondaryContainer); color:var(--onSecondaryContainer); }
+  .danger { background:var(--error); color:var(--onError); }
+  .plain { background:none; color:var(--primary); }
+  .msg { color:var(--tertiary); font-size:13px; margin-top:12px; min-height:1em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nix Shelf</h1>
+  <input id="q" type="search" placeholder="Search nixpkgs…" autofocus aria-label="Search packages">
+  <div class="tabs" role="tablist">
+    <button id="tAll" class="on" role="tab">All</button>
+    <button id="tInst" role="tab">Installed</button>
+  </div>
+</header>
+<div id="count">Loading package index…</div>
+<main id="grid"></main>
+<dialog id="dlg">
+  <h2 id="dName"></h2>
+  <div class="sub" id="dSub"></div>
+  <div id="dBody"></div>
+  <div class="msg" id="dMsg"></div>
+  <div class="actions">
+    <button class="plain" id="bClose">Close</button>
+    <button class="tonal" id="bTest">Test</button>
+    <button class="primary" id="bInstall">Install</button>
+    <button class="danger" id="bRemove">Uninstall</button>
+  </div>
+</dialog>
+<script>
+const $ = id => document.getElementById(id);
+const PAGE = 150;
+let pkgs = [], byAttr = new Map(), installed = new Set(), tab = "all", results = [], shown = 0, current = null;
+
+const five = d => { const w = (d || "No description").split(/\s+/); return w.slice(0, 5).join(" ") + (w.length > 5 ? "…" : ""); };
+const base = a => a.replace(/^pkgsUnstable\./, "");
+
+async function theme() {
+  const s = await (await fetch("/api/scheme")).json();
+  for (const [k, v] of Object.entries(s.colours || {})) document.documentElement.style.setProperty("--" + k, "#" + v);
+  document.documentElement.style.colorScheme = s.mode || "dark";
+}
+
+async function loadInstalled() { installed = new Set(await (await fetch("/api/installed")).json()); }
+
+function search() {
+  const q = $("q").value.trim().toLowerCase();
+  let list = tab === "inst"
+    ? [...installed].map(a => { const p = byAttr.get(base(a)); return [a, p ? p[1] : "", p ? p[2] : ""]; })
+    : pkgs;
+  if (q) {
+    // rank: exact name, name prefix, name contains, description contains
+    const score = p => { const a = p[0].toLowerCase();
+      return a === q ? 0 : a.startsWith(q) ? 1 : a.includes(q) ? 2 : p[1].toLowerCase().includes(q) ? 3 : 9; };
+    list = list.map(p => [score(p), p]).filter(x => x[0] < 9)
+               .sort((x, y) => x[0] - y[0] || x[1][0].length - y[1][0].length).map(x => x[1]);
+  }
+  results = list; shown = 0; $("grid").innerHTML = "";
+  $("count").textContent = `${results.length.toLocaleString()} packages`;
+  more();
+}
+
+function more() {
+  const frag = document.createDocumentFragment();
+  for (const p of results.slice(shown, shown + PAGE)) {
+    const c = document.createElement("button");
+    c.className = "card";
+    const inst = installed.has(p[0]) || installed.has("pkgsUnstable." + p[0]);
+    c.innerHTML = (inst ? '<i class="badge">installed</i>' : "") + "<b></b><span></span>";
+    c.querySelector("b").textContent = p[0];
+    c.querySelector("span").textContent = five(p[1]);
+    c.title = p[0];
+    c.onclick = () => open(p);
+    frag.append(c);
+  }
+  shown += PAGE;
+  $("grid").append(frag);
+}
+
+async function open(p) {
+  current = p[0];
+  const inst = installed.has(p[0]) || installed.has("pkgsUnstable." + p[0]);
+  $("dName").textContent = p[0];
+  $("dSub").textContent = p[2] ? "version " + p[2] : "";
+  $("dBody").innerHTML = "<p></p>";
+  $("dBody").firstChild.textContent = p[1] || "Loading…";
+  $("dMsg").textContent = "Loading details…";
+  $("bInstall").hidden = inst; $("bRemove").hidden = !inst;
+  $("dlg").showModal();
+  const r = await fetch("/api/meta?attr=" + encodeURIComponent(p[0]));
+  const m = await r.json();
+  if (current !== p[0]) return;
+  if (!r.ok) { $("dMsg").textContent = m.error; return; }
+  $("dMsg").textContent = "";
+  const b = $("dBody"); b.innerHTML = "";
+  const para = t => { const e = document.createElement("p"); e.textContent = t; b.append(e); return e; };
+  para(m.description);
+  if (m.longDescription) para(m.longDescription.trim());
+  const info = para("");
+  if (m.homepage) { const a = document.createElement("a"); a.href = a.textContent = [].concat(m.homepage)[0]; a.target = "_blank"; info.append(a, document.createElement("br")); }
+  info.append(`License: ${[].concat(m.license).join(", ")}${m.unfree ? " (unfree)" : ""}`);
+  if (m.mainProgram) info.append(document.createElement("br"), `Command: ${m.mainProgram}`);
+}
+
+async function act(action, label) {
+  $("dMsg").textContent = label;
+  const r = await fetch(`/api/${action}?attr=` + encodeURIComponent(current), { method: "POST", headers: { "X-Shelf": "1" } });
+  const m = await r.json();
+  if (!r.ok) { $("dMsg").textContent = m.error; return; }
+  $("dMsg").textContent = action === "test" ? "Opened in a terminal." : "Rebuilding in a terminal window. If it fails, your config is restored.";
+  if (action !== "test") { await loadInstalled(); search(); }
+}
+
+$("bTest").onclick = () => act("test", "Starting…");
+$("bInstall").onclick = () => act("install", "Adding to configuration.nix…");
+$("bRemove").onclick = () => confirm(`Remove ${current} from configuration.nix and rebuild?`) && act("uninstall", "Removing…");
+$("bClose").onclick = () => $("dlg").close();
+let t; $("q").oninput = () => { clearTimeout(t); t = setTimeout(search, 150); };
+for (const [id, v] of [["tAll", "all"], ["tInst", "inst"]])
+  $(id).onclick = () => { tab = v; $("tAll").classList.toggle("on", v === "all"); $("tInst").classList.toggle("on", v === "inst"); search(); };
+addEventListener("scroll", () => { if (innerHeight + scrollY > document.body.offsetHeight - 600 && shown < results.length) more(); });
+addEventListener("focus", theme);  // picks up a Caelestia scheme switch
+
+(async () => {
+  await Promise.all([theme(), loadInstalled()]);
+  pkgs = await (await fetch("/api/packages")).json();
+  byAttr = new Map(pkgs.map(p => [p[0], p]));
+  search();
+})();
+</script>
+</body>
+</html>

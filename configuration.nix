@@ -7,6 +7,7 @@ in
 {
   imports = [
     ./hardware-configuration.nix
+    ./settings.nix  # written by the Nix Settings app
   ];
 
   # ==========================================================================
@@ -168,12 +169,15 @@ in
     ];
   };
 
-  # Dark theme for Qt apps
-  qt = {
-    enable = true;
-    platformTheme = "gnome";
-    style = "adwaita-dark";
-  };
+  # Qt apps: theme comes from Caelestia via qtengine (QT_QPA_PLATFORMTHEME set in hypr env.lua)
+  qt.enable = true;
+
+  # Chrome: theme colour policy is rendered by Caelestia (~/.config/caelestia/templates/chrome-policy.json),
+  # linked here so scheme changes reach Chrome without sudo
+  systemd.tmpfiles.rules = [
+    "d /etc/opt/chrome/policies/managed 0755 root root -"
+    "L+ /etc/opt/chrome/policies/managed/caelestia.json - - - - /home/lk/.local/state/caelestia/theme/chrome-policy.json"
+  ];
 
   # Portals: needed for file pickers and opening links in apps
   xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
@@ -236,6 +240,12 @@ in
   environment.systemPackages = with pkgs; [
     # --- Caelestia shell & its dependencies ---
     inputs.caelestia-shell.packages.${system}.with-cli
+    # `caelestia` CLI on PATH (keybinds, scheme), plus our own schemes from ./caelestia-schemes
+    (inputs.caelestia-shell.inputs.caelestia-cli.packages.${system}.default.overrideAttrs (old: {
+      postInstall = (old.postInstall or "") + "\n" + ''
+        cp -r --no-preserve=mode ${./caelestia-schemes}/. $out/lib/python3*/site-packages/caelestia/data/schemes/
+      '';
+    }))
     foot          # default terminal in Caelestia
     starship      # prompt used by the Caelestia fish config
     fastfetch     # system info
@@ -262,6 +272,9 @@ in
 
     # --- Icons & theming ---
     papirus-icon-theme
+    adw-gtk3      # GTK3 base theme Caelestia's gtk.css colours build on
+    qtengine      # Qt platform theme Caelestia writes colours for
+    darkly        # Qt widget style used by Caelestia's qtengine config
     adwaita-icon-theme
     hicolor-icon-theme
     librsvg           # renders SVG theme icons in Qt/Quickshell
@@ -280,6 +293,7 @@ in
     vscode
     zed-editor
     ripes         # RISC-V processor simulator
+    linux-wallpaperengine  # plays Wallpaper Engine backgrounds (assets from Steam)
     github-desktop
     pkgsUnstable.jetbrains.clion
     pkgsUnstable.jetbrains.rider
@@ -287,6 +301,30 @@ in
     pkgsUnstable.jetbrains.pycharm
     gcc
     cmake
+    cargo         # Rust toolchain
+    rustc
+    rust-analyzer
+    clippy
+    rustfmt
+    # Launcher for Nix Shelf (built from ~/CLionProjects/NixShelf with `cargo build --release`);
+    # the app quits on its own ~2 min after its window is closed
+    (makeDesktopItem {
+      name = "nix-shelf";
+      desktopName = "Nix Shelf";
+      comment = "Browse, test and install nixpkgs";
+      icon = "system-software-install";
+      exec = "/home/lk/CLionProjects/NixShelf/target/release/nix-shelf";
+      categories = [ "System" "PackageManager" ];
+    })
+    # Launcher for Nix Settings (built from ~/CLionProjects/NixSettings); it writes ./settings.nix
+    (makeDesktopItem {
+      name = "nix-settings";
+      desktopName = "Nix Settings";
+      comment = "Browse and change NixOS options";
+      icon = "preferences-system";
+      exec = "/home/lk/CLionProjects/NixSettings/target/release/nix-settings";
+      categories = [ "System" "Settings" ];
+    })
     dotnet-sdk
     python3
     jdk17
